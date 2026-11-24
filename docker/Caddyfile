@@ -1,0 +1,10 @@
+# The site's only site block. /api/ goes to the API, everything else to the SSR server.
+# reverse_proxy passes Host on unchanged, which is its default.
+http://example.test {
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4400
+	}
+	handle {
+		reverse_proxy 127.0.0.1:4000
+	}
+}

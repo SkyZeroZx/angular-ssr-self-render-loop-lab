@@ -12,6 +12,9 @@ services:
     hostname: example.test
     init: true
     mem_limit: ${MEMORY:-1g}
+    environment:
+      - NG_ALLOWED_HOSTS
+      - NG_TRUST_PROXY_HEADERS
     ports:
       - 8080:80
 
@@ -26,5 +29,25 @@ services:
         RELEASE: ${RELEASE:-24.04}
     image: ng-render-recursion:nginx-${DISTRO:-ubuntu}-${RELEASE:-24.04}
     network_mode: service:site
+    depends_on:
+      - site
+
+  # nginx.org's image with a hand-written nginx.conf: docker compose up -d site nginx-org
+  nginx-org:
+    image: nginx:${NGINX_VERSION:-1.30.7}
+    profiles: [org]
+    network_mode: service:site
+    volumes:
+      - ./${NGINX_CONF:-nginx.conf}:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - site
+
+  # In place of nginx: docker compose up -d site caddy
+  caddy:
+    image: caddy:${CADDY_VERSION:-2.11.9}
+    profiles: [caddy]
+    network_mode: service:site
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - site

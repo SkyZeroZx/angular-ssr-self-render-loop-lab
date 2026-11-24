@@ -1,0 +1,28 @@
+# nginx and Node on two machines: the site's name resolves to nginx, not to the machine that runs Node.
+#   docker compose -f two-machines.yml up -d --build
+name: ng-render-recursion
+
+services:
+  site:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: http-client
+    image: ng-render-recursion:http-client
+    init: true
+    mem_limit: ${MEMORY:-1g}
+    environment:
+      - NG_ALLOWED_HOSTS
+
+  nginx:
+    image: nginx:${NGINX_VERSION:-1.30.7}
+    ports:
+      - 8080:80
+    volumes:
+      - ./nginx-two-machines.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      default:
+        aliases:
+          - example.test
+    depends_on:
+      - site
