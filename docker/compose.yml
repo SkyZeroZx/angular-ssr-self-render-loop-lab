@@ -1,0 +1,30 @@
+name: ng-render-recursion
+
+services:
+  # One machine named like the site: the API, the SSR server and the proxy share its network,
+  # as nginx and Node do on a VPS whose name points at the VPS itself.
+  site:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: http-client
+    image: ng-render-recursion:http-client
+    hostname: example.test
+    init: true
+    mem_limit: ${MEMORY:-1g}
+    ports:
+      - 8080:80
+
+  # nginx installed from the distro: DISTRO=ubuntu (default) or debian, RELEASE=24.04 (default), 22.04, 26.04, 13.
+  nginx:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: nginx
+      args:
+        DISTRO: ${DISTRO:-ubuntu}
+        RELEASE: ${RELEASE:-24.04}
+    image: ng-render-recursion:nginx-${DISTRO:-ubuntu}-${RELEASE:-24.04}
+    network_mode: service:site
+    depends_on:
+      - site
