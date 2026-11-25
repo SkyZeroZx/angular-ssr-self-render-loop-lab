@@ -3,12 +3,13 @@ name: ng-render-recursion
 services:
   # One machine named like the site: the API, the SSR server and the proxy share its network,
   # as nginx and Node do on a VPS whose name points at the VPS itself.
+  # CASE picks the image: http-client (default), http-resource, resolver, angular-20, angular-21, angular-22.
   site:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: http-client
-    image: ng-render-recursion:http-client
+      target: ${CASE:-http-client}
+    image: ng-render-recursion:${CASE:-http-client}
     hostname: example.test
     init: true
     mem_limit: ${MEMORY:-1g}

@@ -7,8 +7,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: http-client
-    image: ng-render-recursion:http-client
+      target: ${CASE:-http-client}
+    image: ng-render-recursion:${CASE:-http-client}
     init: true
     mem_limit: ${MEMORY:-1g}
     environment:
