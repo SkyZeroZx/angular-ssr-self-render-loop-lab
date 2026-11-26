@@ -46,20 +46,41 @@ visitor   GET /              ECONNRESET
 
 `allowedHosts` only has the site's name, as the [security guide](https://angular.dev/best-practices/security#preventing-server-side-request-forgery-ssrf) asks, and these proxies pass the port on to Node in `Host`:
 
-| Proxy config | `Host` that reaches Node | 1 GB container | Default in |
+| Proxy | `Host` that reaches Node | 1 GB container | Default in |
 | --- | --- | --- | --- |
 | nginx, `Host $http_host` | `example.test:4000` | exits after 14.1 s on Ubuntu 22.04, 15.4 s on 24.04 | Ubuntu 22.04 and 24.04 `proxy_params`, [PM2's nginx guide](https://pm2.keymetrics.io/docs/tutorials/pm2-nginx-production-setup) |
 | nginx, `Host $host$is_request_port$request_port` | `example.test:4000` | exits after 14.7 s on Ubuntu 26.04 | Ubuntu 26.04 and Debian testing `proxy_params` |
+| Nginx Proxy Manager, a proxy host | `example.test:4000` | exits after 14.3 s | Nginx Proxy Manager, whose [`$forward_host`](https://github.com/NginxProxyManager/nginx-proxy-manager/blob/v2.17.1/docker/rootfs/etc/nginx/conf.d/include/proxy-variables.conf#L12-L15) is `$host` plus the client's port |
+| Apache, `ProxyPreserveHost On` | `example.test:4000` | exits after 15.3 s | Needed: with the default `Off` Apache sends `127.0.0.1:4000` and Angular answers 400 ([apache.conf](docker/apache.conf)) |
 | Caddy, `reverse_proxy` | `example.test:4000` | exits after 14.2 s | Caddy ([Caddyfile](docker/Caddyfile)) |
+| Traefik, a `Host()` router | `example.test:4000` | exits after 12.7 s | Traefik, whose `passHostHeader` is true by default ([traefik.yml](docker/traefik.yml)) |
+| HAProxy, `mode http` | `example.test:4000` | exits after 13.4 s, 15.1 s on 21.2.31 as generated | HAProxy ([haproxy.cfg](docker/haproxy.cfg)) |
 
 The nginx rows use the distro's own nginx package with a site that only does `include proxy_params;`. nginx needs some `Host` line in front of Angular: without one it sends [the upstream's address](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header), `127.0.0.1:4000`, and Angular answers every request with 400.
 
+All the proxies listen on the site's port 80, so run `docker compose --profile "*" down -v` before switching to another one:
+
 ```sh
 RELEASE=26.04 docker compose up -d --build site nginx
-docker compose up -d site caddy
+docker compose up -d site nginx-proxy-manager && sh ../tools/nginx-proxy-manager.sh
+docker compose up -d site apache
+CASE=angular-21 docker compose up -d --build site haproxy
 ```
 
-In `compose.yml` the proxy shares the site's network and the container's hostname is `example.test`, so the name resolves to the machine that runs Node, as on a VPS. A new 22 project ignores `X-Forwarded-Proto`, so the URL stays `http://` behind HTTPS too.
+`apache` can also be `caddy`, `traefik` or `haproxy`. In `compose.yml` the proxy shares the site's network and the container's hostname is `example.test`, so the name resolves to the machine that runs Node, as on a VPS. A new 22 project ignores `X-Forwarded-Proto`, so the URL stays `http://` behind HTTPS too.
+
+## `localhost` in the allow-list
+
+`localhost` is the machine that runs Node wherever the proxy is. nginx sends the unknown name to the site, because the site has the only server block ([nginx.conf](docker/nginx.conf)), and the process exits after 15.6 s, or after 15.8 s with nginx on another machine ([two-machines.yml](docker/two-machines.yml)). `*` in the allow-list does the same with any name: `Host: 127.0.0.1:4000` ends the process after 15.4 s.
+
+In Kubernetes the site's name points at the load balancer, so there it takes `localhost` and an Ingress with no host ([k8s.yml](docker/k8s.yml)). The pod's container exits after 13.5 s behind ingress-nginx and after 13.0 s behind the Traefik that k3s ships.
+
+```sh
+NG_ALLOWED_HOSTS=localhost docker compose up -d site nginx-org
+node ../tools/attack.mjs "Host: localhost:4000"
+sh ../tools/k8s.sh ingress-nginx    # or traefik
+SITE=http://localhost:8090 node ../tools/attack.mjs "Host: localhost:4000"
+```
 
 ## Proxy headers
 
@@ -70,13 +91,11 @@ NG_TRUST_PROXY_HEADERS=x-forwarded-host,x-forwarded-proto NGINX_CONF=nginx-host.
 node ../tools/attack.mjs "X-Forwarded-Host: example.test:4000"
 ```
 
-## `localhost` in the allow-list
-
-`localhost` is the machine that runs Node wherever nginx is. nginx sends the unknown name to the site, because the site has the only server block ([nginx.conf](docker/nginx.conf)), and the process exits after 15.6 s, or after 15.8 s with nginx on another machine ([two-machines.yml](docker/two-machines.yml)). `*` in the allow-list does the same with any name: `Host: 127.0.0.1:4000` ends the process after 15.4 s.
+With `trustProxyHeaders: true` the port also gets in through `X-Forwarded-Port: 4000`, even behind Debian 13's `proxy_params`, which set `Host $host`. The process exits after 15.7 s on 22.3.0 and after 15.8 s on 21.2.31. On 22, `Forwarded: host="example.test:4000"` ends it after 14.5 s. The variable lists the headers that `true` covers:
 
 ```sh
-NG_ALLOWED_HOSTS=localhost docker compose up -d site nginx-org
-node ../tools/attack.mjs "Host: localhost:4000"
+NG_TRUST_PROXY_HEADERS=forwarded,x-forwarded-for,x-forwarded-host,x-forwarded-port,x-forwarded-proto,x-forwarded-prefix DISTRO=debian RELEASE=13 docker compose up -d --build site nginx
+node ../tools/attack.mjs "X-Forwarded-Port: 4000"
 ```
 
 ## How common
@@ -112,4 +131,4 @@ Node picks its heap from the container's memory limit (`MEMORY=4g docker compose
 | 1 GB | 560 MB | exits after 15.4 s, 686 MB RSS, 8,711 open descriptors |
 | 4 GB | 2,240 MB | exits after 66.6 s, 2,346 MB RSS, 36,055 open descriptors |
 
-Measured 2026-11-23 in Docker 29.7.2 on Windows 11, with Node 24.22.3 and `@angular/ssr` 20.3.43, 21.2.31 and 22.3.0 (Angular 20.3.35, 21.2.26 and 22.3.0). The proxies were nginx 1.18.0, 1.24.0 and 1.28.3 from Ubuntu 22.04, 24.04 and 26.04, 1.30.7 from nginx.org, and Caddy 2.11.9.
+Measured from 2026-11-23 to 2026-11-26 in Docker 29.7.2 on Windows 11, with Node 24.22.3 and `@angular/ssr` 20.3.43, 21.2.31 and 22.3.0 (Angular 20.3.35, 21.2.26 and 22.3.0). The proxies were nginx 1.18.0, 1.24.0 and 1.28.3 from Ubuntu 22.04, 24.04 and 26.04, 1.26.3 from Debian 13 and 1.30.7 from nginx.org, Nginx Proxy Manager 2.17.1, Apache 2.4.71, Caddy 2.11.9, Traefik 3.8.0, HAProxy 3.4.8, and ingress-nginx 1.15.1 and Traefik 3.3.6 in k3s 1.34.1.

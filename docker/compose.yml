@@ -52,3 +52,51 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - site
+
+  # In place of nginx: docker compose up -d site nginx-proxy-manager, then
+  # sh ../tools/nginx-proxy-manager.sh adds the site as a proxy host through its API, as its UI does.
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:${NPM_VERSION:-2.17.1}
+    profiles: [npm]
+    network_mode: service:site
+    environment:
+      - INITIAL_ADMIN_EMAIL=lab@example.test
+      - INITIAL_ADMIN_PASSWORD=lab-password-123
+    volumes:
+      - /data
+      - /etc/letsencrypt
+    depends_on:
+      - site
+
+  # In place of nginx: docker compose up -d site apache
+  apache:
+    image: httpd:${HTTPD_VERSION:-2.4.71}
+    profiles: [apache]
+    network_mode: service:site
+    volumes:
+      - ./apache.conf:/usr/local/apache2/conf/httpd.conf:ro
+    depends_on:
+      - site
+
+  # In place of nginx: docker compose up -d site traefik
+  traefik:
+    image: traefik:${TRAEFIK_VERSION:-v3.8.0}
+    profiles: [traefik]
+    network_mode: service:site
+    command: [--entrypoints.web.address=:80, --providers.file.filename=/etc/traefik/routes.yml]
+    volumes:
+      - ./traefik.yml:/etc/traefik/routes.yml:ro
+    depends_on:
+      - site
+
+  # In place of nginx: docker compose up -d site haproxy
+  haproxy:
+    image: haproxy:${HAPROXY_VERSION:-3.4.8}
+    profiles: [haproxy]
+    network_mode: service:site
+    # The image runs as an unprivileged user, which can't bind port 80.
+    user: root
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - site

@@ -1,0 +1,55 @@
+# The site in Kubernetes: one pod with a 1 GiB limit, localhost also allowed, and an Ingress with no host.
+# example.test resolves to the ingress controller, as public DNS would point it at the load balancer.
+# tools/k8s.sh fills in INGRESS_CLASS and INGRESS_IP.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: site
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: site }
+  template:
+    metadata:
+      labels: { app: site }
+    spec:
+      hostAliases:
+        - ip: "INGRESS_IP"
+          hostnames: ["example.test"]
+      containers:
+        - name: site
+          image: docker.io/library/ng-render-recursion:http-client
+          imagePullPolicy: Never
+          env:
+            - { name: NG_ALLOWED_HOSTS, value: localhost }
+          ports:
+            - containerPort: 4000
+            - containerPort: 4400
+          resources:
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: site
+spec:
+  selector: { app: site }
+  ports:
+    - { name: ssr, port: 4000 }
+    - { name: api, port: 4400 }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: site
+spec:
+  ingressClassName: INGRESS_CLASS
+  rules:
+    - http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend: { service: { name: site, port: { number: 4400 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: site, port: { number: 4000 } } }

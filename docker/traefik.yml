@@ -1,0 +1,19 @@
+# The site's routes for Traefik's file provider. /api/ goes to the API, everything else to the SSR server.
+# passHostHeader is left at its default (true), so Host is passed on as the client sent it.
+http:
+  routers:
+    api:
+      rule: "Host(`example.test`) && PathPrefix(`/api/`)"
+      service: api
+    site:
+      rule: "Host(`example.test`)"
+      service: site
+  services:
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4400"
+    site:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4000"
